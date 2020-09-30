@@ -1,6 +1,7 @@
 #ifndef AFINA_STORAGE_SIMPLE_LRU_H
 #define AFINA_STORAGE_SIMPLE_LRU_H
 
+#include <iostream>
 #include <cassert>
 #include <map>
 #include <memory>
