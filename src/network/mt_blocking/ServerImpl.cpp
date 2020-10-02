@@ -34,7 +34,7 @@ ServerImpl::ServerImpl(std::shared_ptr<Afina::Storage> ps, std::shared_ptr<Loggi
 ServerImpl::~ServerImpl() {}
 
 // See Server.h
-void ServerImpl::Start(uint16_t port, uint32_t n_accept, uint32_t n_workers) {
+void ServerImpl::Start(uint16_t port, uint32_t n_accept, uint32_t n_workers=1) {
 
     _max_worker = n_workers;
 
@@ -76,7 +76,6 @@ void ServerImpl::Start(uint16_t port, uint32_t n_accept, uint32_t n_workers) {
     }
 
     running.store(true);
-    _worker.store(0);
     _thread = std::thread(&ServerImpl::OnRun, this);
 }
 
@@ -98,7 +97,7 @@ void ServerImpl::Join() {
     close(_server_socket);
 
     std::unique_lock<std::mutex> _lock(_mutex);
-    while (_worker.load()) {
+    while (_client_sockets.size()) {
         _cv.wait(_lock);
     }
 }
@@ -148,11 +147,13 @@ void ServerImpl::OnRun() {
 
         // TODO: Start new thread and process data from/to connection
         {
-
-            if (_worker < _max_worker) {
-                _worker++;
+            _cs_mutex.lock();
+            if (_client_sockets.size() < _max_worker) {
+                _cs_mutex.unlock();
                 std::thread(&ServerImpl::Worker, this, client_socket).detach();
+                _cs_mutex.lock();
                 _client_sockets.insert(client_socket);
+                _cs_mutex.unlock();
 
             } else {
                 close(client_socket);
@@ -251,10 +252,13 @@ void ServerImpl::Worker(int client_socket) {
     // We are done with this connection
 
     close(client_socket);
+    _cs_mutex.lock();
     _client_sockets.erase(client_socket);
+    _cs_mutex.unlock();
 
-    _worker--;
-    _cv.notify_one();
+    while (!_client_sockets.empty()){
+	_cv.notify_all();
+    }
 }
 
 } // namespace MTblocking

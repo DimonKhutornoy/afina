@@ -60,9 +60,9 @@ private:
     // Thread to run network on
     std::thread _thread;
 
+    std::mutex _cs_mutex;
     std::mutex _mutex;
     uint32_t _max_worker;
-    std::atomic<int> _worker;
     std::set<int> _client_sockets;
 
     std::condition_variable _cv;
