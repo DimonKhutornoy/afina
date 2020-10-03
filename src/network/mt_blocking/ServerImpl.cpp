@@ -250,7 +250,7 @@ void ServerImpl::Worker(int client_socket) {
     close(client_socket);
     _client_sockets.erase(client_socket);
 
-    while (!_client_sockets.empty()){
+    if (_client_sockets.empty()){
 	_cv.notify_all();
     }
 }
