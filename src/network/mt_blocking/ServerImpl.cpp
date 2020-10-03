@@ -83,7 +83,7 @@ void ServerImpl::Start(uint16_t port, uint32_t n_accept, uint32_t n_workers=1) {
 void ServerImpl::Stop() {
     running.store(false);
     shutdown(_server_socket, SHUT_RDWR);
-
+    std::lock_guard<std::mutex> lock(_cs_mutex);
     for (auto socket : _client_sockets) {
         shutdown(socket, SHUT_RD);
     }
@@ -94,7 +94,6 @@ void ServerImpl::Join() {
 
     assert(_thread.joinable());
     _thread.join();
-    close(_server_socket);
 
     std::unique_lock<std::mutex> _lock(_mutex);
     while (_client_sockets.size()) {
@@ -147,14 +146,10 @@ void ServerImpl::OnRun() {
 
         // TODO: Start new thread and process data from/to connection
         {
-            _cs_mutex.lock();
+            std::lock_guard<std::mutex> lock(_cs_mutex);
             if (_client_sockets.size() < _max_worker) {
-                _cs_mutex.unlock();
                 std::thread(&ServerImpl::Worker, this, client_socket).detach();
-                _cs_mutex.lock();
                 _client_sockets.insert(client_socket);
-                _cs_mutex.unlock();
-
             } else {
                 close(client_socket);
             }
@@ -163,18 +158,19 @@ void ServerImpl::OnRun() {
 
     // Cleanup on exit..
     _logger->warn("Network stopped");
+    close(_server_socket);
 }
 
 void ServerImpl::Worker(int client_socket) {
 
-    std::size_t arg_remains;
+    std::size_t arg_remains=0;
     Protocol::Parser parser;
     std::string argument_for_command;
     std::unique_ptr<Execute::Command> command_to_execute;
 
     try {
         int readed_bytes = -1;
-        char client_buffer[4096];
+        char client_buffer[4096]="";
         while ((readed_bytes = read(client_socket, client_buffer, sizeof(client_buffer))) > 0) {
             _logger->debug("Got {} bytes from socket", readed_bytes);
 
@@ -250,11 +246,9 @@ void ServerImpl::Worker(int client_socket) {
     }
 
     // We are done with this connection
-
+    std::lock_guard<std::mutex> lock(_cs_mutex);
     close(client_socket);
-    _cs_mutex.lock();
     _client_sockets.erase(client_socket);
-    _cs_mutex.unlock();
 
     while (!_client_sockets.empty()){
 	_cv.notify_all();
