@@ -2,6 +2,9 @@
 #define AFINA_NETWORK_MT_BLOCKING_SERVER_H
 
 #include <atomic>
+#include <condition_variable>
+#include <mutex>
+#include <set>
 #include <thread>
 
 #include <afina/network/Server.h>
@@ -17,10 +20,12 @@ namespace MTblocking {
 /**
  * # Network resource manager implementation
  * Server that is spawning a separate thread for each connection
+ *
  */
 class ServerImpl : public Server {
 public:
     ServerImpl(std::shared_ptr<Afina::Storage> ps, std::shared_ptr<Logging::Service> pl);
+
     ~ServerImpl();
 
     // See Server.h
@@ -38,6 +43,8 @@ protected:
      */
     void OnRun();
 
+    void Worker(int client_socket);
+
 private:
     // Logger instance
     std::shared_ptr<spdlog::logger> _logger;
@@ -52,6 +59,13 @@ private:
 
     // Thread to run network on
     std::thread _thread;
+
+    std::mutex _cs_mutex;
+    std::mutex _mutex;
+    uint32_t _max_worker;
+    std::set<int> _client_sockets;
+
+    std::condition_variable _cv;
 };
 
 } // namespace MTblocking
