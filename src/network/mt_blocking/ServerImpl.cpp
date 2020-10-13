@@ -83,6 +83,7 @@ void ServerImpl::Start(uint16_t port, uint32_t n_accept, uint32_t n_workers=1) {
 void ServerImpl::Stop() {
     running.store(false);
     shutdown(_server_socket, SHUT_RDWR);
+    _max_worker = 0;
     std::lock_guard<std::mutex> lock(_cs_mutex);
     for (auto socket : _client_sockets) {
         shutdown(socket, SHUT_RD);

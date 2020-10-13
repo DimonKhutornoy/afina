@@ -18,16 +18,7 @@ class StripedLRU : public Afina::Storage {
 public:
 
     friend StripedLRU* Make_stor(std::size_t count, size_t max_size);
-
-    StripedLRU(std::size_t count, size_t str_max_size)
-        : count(count)
-    {
-        for (std::size_t i = 0; i < count; ++i) {
-            shards.emplace_back(new ThreadSafeSimplLRU(str_max_size));
-        }
-    }
-    ~StripedLRU() {}
-
+     ~StripedLRU() {}
     bool Put(const std::string &key, const std::string &value) override {
         return shards[hash(key) % count]->Put(key, value);
     }
@@ -42,7 +33,7 @@ public:
 
     bool Delete(const std::string &key) override {
         return shards[hash(key) % count]->Delete(key);
-}
+    }
 
     bool Get(const std::string &key, std::string &value) override {
         return shards[hash(key) % count]->Get(key, value);
@@ -52,7 +43,14 @@ private:
     std::size_t count;
     std::vector<std::unique_ptr<ThreadSafeSimplLRU>> shards;
     std::hash<std::string> hash;
-
+    StripedLRU(std::size_t count, size_t str_max_size)
+        : count(count)
+    {
+        for (std::size_t i = 0; i < count; ++i) {
+            shards.emplace_back(new ThreadSafeSimplLRU(str_max_size));
+        }
+    }
+   
 };
     StripedLRU* Make_stor(std::size_t count, std::size_t max_size = 2*1024*1024)
     {
@@ -62,6 +60,7 @@ private:
         }
         return new StripedLRU(count, limit);
     }
+
 } // namespace Backend
 } // namespace Afina
 
