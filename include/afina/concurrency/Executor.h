@@ -34,32 +34,7 @@ public:
           wt_time(wt_time) {
         std::unique_lock<std::mutex> lock(this->mutex);
         for (int i = 0; i < low_watermark; ++i) {
-            threads.emplace_back(std::thread([this]()
-            {
-            this->mutex.lock();
-            while (this->state == Executor::State::kRun) {
-                this->mutex.unlock();
-                std::function<void()> task;
-                {
-                    std::unique_lock<std::mutex> cv_lock(this->mutex);
-                    while (this->tasks.empty()) {
-                        this->empty_condition.wait_for(cv_lock, std::chrono::milliseconds(this->wt_time));
-                        if (this->tasks.empty() || this->threads.size() > this->low_watermark) {
-                            auto this_thread_id = std::this_thread::get_id();
-                            for (auto it = this->threads.begin(); it < this->threads.end(); it++) {
-                                if (it->get_id() == this_thread_id) {
-                                    auto self = std::move(*it);
-                                    this->threads.erase(it);
-                                    return;
-                                }
-                            }
-                        }
-                    }
-                    task = std::move(this->tasks.front());
-                    this->tasks.pop_front();
-                }
-                task();
-            }}));
+            threads.emplace_back(std::thread([this]{return thread_worker(this);}));
         }
     }
 
@@ -107,6 +82,11 @@ public:
         }
 
         // Enqueue new task
+
+        if (threads.size() < high_watermark) {
+            threads.emplace_back(std::thread([this] { return thread_worker(this); }));
+        }
+
         std::unique_lock<std::mutex> _lock(this->mutex);
         tasks.push_back(exec);
         empty_condition.notify_one();
@@ -123,7 +103,33 @@ private:
     /**
      * Main function that all pool threads are running. It polls internal task queue and execute tasks
      */
-    friend void perform(Executor *executor);
+    friend void thread_worker(Executor *executor)
+    {
+            executor->mutex.lock();
+            while (executor->state == Executor::State::kRun) {
+                executor->mutex.unlock();
+                std::function<void()> task;
+                {
+                    std::unique_lock<std::mutex> cv_lock(executor->mutex);
+                    while (executor->tasks.empty()) {
+                        executor->empty_condition.wait_for(cv_lock, std::chrono::milliseconds(executor->wt_time));
+                        if (executor->tasks.empty() || executor->threads.size() > executor->low_watermark) {
+                            auto this_thread_id = std::this_thread::get_id();
+                            for (auto it = executor->threads.begin(); it < executor->threads.end(); it++) {
+                                if (it->get_id() == this_thread_id) {
+                                    auto self = std::move(*it);
+                                    executor->threads.erase(it);
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                    task = std::move(executor->tasks.front());
+                    executor->tasks.pop_front();
+                }
+                task();
+            }
+    }
 
     /**
      * Mutex to protect state below from concurrent modification
