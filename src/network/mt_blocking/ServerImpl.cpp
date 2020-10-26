@@ -96,11 +96,12 @@ void ServerImpl::Join() {
 
     assert(_thread.joinable());
     _thread.join();
-
+    /*
     std::unique_lock<std::mutex> _lock(_mutex);
     while (_client_sockets.size()) {
         _cv.wait(_lock);
     }
+    */
 }
 
 // See Server.h
@@ -150,11 +151,11 @@ void ServerImpl::OnRun() {
         // TODO: Start new thread and process data from/to connection
         {
             std::lock_guard<std::mutex> lock(_cs_mutex);
-            if (_client_sockets.size() < _max_worker) {
-                void (ServerImpl::*func)(int);
-                func = &ServerImpl::Worker;
-                if (!executor.Execute(func, this, client_socket)) {
+            if (running.load()) {
+                if (!executor.Execute(&ServerImpl::Worker, this, client_socket)) {
                     close(client_socket);
+                } else {
+                    _client_sockets.insert(client_socket);
                 }
             } else {
                 close(client_socket);

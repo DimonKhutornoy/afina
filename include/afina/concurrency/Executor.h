@@ -57,8 +57,6 @@ public:
         for (auto &thread : threads) {
             if (await) {
                 thread.join();
-            } else {
-                thread.detach();
             }
         }
         threads.clear();
@@ -77,13 +75,13 @@ public:
         auto exec = std::bind(std::forward<F>(func), std::forward<Types>(args)...);
 
         std::unique_lock<std::mutex> lock(this->mutex);
-        if (state != State::kRun || tasks.size() >= max_queue_size) {
+        if (state != State::kRun || cur_queue_size >= max_queue_size) {
             return false;
         }
 
         // Enqueue new task
 
-        if (threads.size() < high_watermark) {
+        if (threads.size() < high_watermark && cur_queue_size++ > 0 && threads.size() == worked_threads) {
             threads.emplace_back(std::thread([this] { return thread_worker(this); }));
         }
 
@@ -105,19 +103,17 @@ private:
      */
     friend void thread_worker(Executor *executor)
     {
-            executor->mutex.lock();
+            std::unique_lock<std::mutex> cv_lock(executor->cv_mutex);
             while (executor->state == Executor::State::kRun) {
-                executor->mutex.unlock();
                 std::function<void()> task;
                 {
-                    std::unique_lock<std::mutex> cv_lock(executor->mutex);
                     while (executor->tasks.empty()) {
                         executor->empty_condition.wait_for(cv_lock, std::chrono::milliseconds(executor->wt_time));
-                        if (executor->tasks.empty() || executor->threads.size() > executor->low_watermark) {
+                        if (executor->tasks.empty() && executor->threads.size() > executor->low_watermark) {
                             auto this_thread_id = std::this_thread::get_id();
                             for (auto it = executor->threads.begin(); it < executor->threads.end(); it++) {
                                 if (it->get_id() == this_thread_id) {
-                                    auto self = std::move(*it);
+                                    it->detach();
                                     executor->threads.erase(it);
                                     return;
                                 }
@@ -126,8 +122,11 @@ private:
                     }
                     task = std::move(executor->tasks.front());
                     executor->tasks.pop_front();
+                    executor->cur_queue_size--;
+                    executor->worked_threads++;
                 }
                 task();
+                executor->worked_threads--;
             }
     }
 
@@ -154,15 +153,19 @@ private:
     /**
      * Flag to stop bg threads
      */
-    State state;
+    State state = State::kRun;
     size_t low_watermark;
     size_t high_watermark;
     size_t max_queue_size;
     size_t wt_time;
     std::string _name;
+    size_t cur_queue_size = 0;
+    size_t worked_threads = 0;
+    std::mutex cv_mutex;
 };
 
 } // namespace Concurrency
 } // namespace Afina
 
 #endif // AFINA_CONCURRENCY_EXECUTOR_H
+
