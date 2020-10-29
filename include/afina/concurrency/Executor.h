@@ -1,6 +1,7 @@
 #ifndef AFINA_CONCURRENCY_EXECUTOR_H
 #define AFINA_CONCURRENCY_EXECUTOR_H
 
+#include <algorithm>
 #include <condition_variable>
 #include <functional>
 #include <memory>
@@ -34,15 +35,11 @@ public:
           wt_time(wt_time) {
         std::unique_lock<std::mutex> lock(this->mutex);
         for (int i = 0; i < low_watermark; ++i) {
-            threads.emplace_back(std::thread([this]{return thread_worker(this);}));
+            threads.emplace_back(std::thread([this] { return thread_worker(this); }));
         }
     }
 
-    ~Executor() {
-        if (state != State::kStopped) {
-            Stop(true);
-        }
-    };
+    ~Executor() { Stop(true); };
 
     /**
      * Signal thread pool to stop, it will stop accepting new jobs and close threads just after each become
@@ -52,14 +49,15 @@ public:
      */
     void Stop(bool await = false) {
         std::unique_lock<std::mutex> lock(this->mutex);
+        std::unique_lock<std::mutex> _lock(this->cv_mutex);
         state = State::kStopping;
         empty_condition.notify_all();
+        _lock.unlock();
         for (auto &thread : threads) {
             if (await) {
                 thread.join();
             }
         }
-        threads.clear();
         state = State::kStopped;
     };
 
@@ -74,15 +72,17 @@ public:
         // Prepare "task"
         auto exec = std::bind(std::forward<F>(func), std::forward<Types>(args)...);
 
-        std::unique_lock<std::mutex> lock(this->mutex);
+        std::unique_lock<std::mutex> lock(this->cv_mutex);
         if (state != State::kRun || cur_queue_size >= max_queue_size) {
             return false;
         }
 
         // Enqueue new task
-
-        if (threads.size() < high_watermark && cur_queue_size++ > 0 && threads.size() == worked_threads) {
-            threads.emplace_back(std::thread([this] { return thread_worker(this); }));
+        {
+            std::unique_lock<std::mutex> lock(this->mutex);
+            if (threads.size() < high_watermark && cur_queue_size++ > 0 && threads.size() == worked_threads) {
+                threads.emplace_back(std::thread([this] { return thread_worker(this); }));
+            }
         }
 
         std::unique_lock<std::mutex> _lock(this->mutex);
@@ -101,33 +101,38 @@ private:
     /**
      * Main function that all pool threads are running. It polls internal task queue and execute tasks
      */
-    friend void thread_worker(Executor *executor)
-    {
-            std::unique_lock<std::mutex> cv_lock(executor->cv_mutex);
-            while (executor->state == Executor::State::kRun) {
-                std::function<void()> task;
-                {
-                    while (executor->tasks.empty()) {
-                        executor->empty_condition.wait_for(cv_lock, std::chrono::milliseconds(executor->wt_time));
-                        if (executor->tasks.empty() && executor->threads.size() > executor->low_watermark) {
+    friend void thread_worker(Executor *executor) {
+        std::unique_lock<std::mutex> cv_lock(executor->cv_mutex);
+        auto now = std::chrono::system_clock::now();
+        while (executor->state == Executor::State::kRun) {
+            std::function<void()> task;
+            {
+                while (executor->tasks.empty()) {
+                    auto wake_stat = executor->empty_condition.wait_until(
+                        cv_lock, now + std::chrono::milliseconds(executor->wt_time));
+                    if (executor->tasks.empty() && executor->threads.size() > executor->low_watermark &&
+                        wake_stat == std::cv_status::timeout) {
+                        std::unique_lock<std::mutex> lock(executor->mutex);
+                        if (executor->state != Executor::State::kStopping) {
                             auto this_thread_id = std::this_thread::get_id();
-                            for (auto it = executor->threads.begin(); it < executor->threads.end(); it++) {
-                                if (it->get_id() == this_thread_id) {
-                                    it->detach();
-                                    executor->threads.erase(it);
-                                    return;
-                                }
-                            }
+                            auto it =
+                                std::find_if(executor->threads.begin(), executor->threads.end(),
+                                             [this_thread_id](std::thread &x) { return x.get_id() == this_thread_id; });
+                            executor->threads.erase(it);
+                            return;
                         }
                     }
-                    task = std::move(executor->tasks.front());
-                    executor->tasks.pop_front();
-                    executor->cur_queue_size--;
-                    executor->worked_threads++;
                 }
-                task();
-                executor->worked_threads--;
+                task = std::move(executor->tasks.front());
+                executor->tasks.pop_front();
+                executor->cur_queue_size--;
+                executor->worked_threads++;
             }
+            cv_lock.unlock();
+            task();
+            cv_lock.lock();
+            executor->worked_threads--;
+        }
     }
 
     /**
@@ -168,4 +173,3 @@ private:
 } // namespace Afina
 
 #endif // AFINA_CONCURRENCY_EXECUTOR_H
-
