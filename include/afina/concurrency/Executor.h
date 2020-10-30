@@ -85,7 +85,6 @@ public:
             }
         }
 
-        std::unique_lock<std::mutex> _lock(this->mutex);
         tasks.push_back(exec);
         empty_condition.notify_one();
         return true;
@@ -110,17 +109,18 @@ private:
                 while (executor->tasks.empty()) {
                     auto wake_stat = executor->empty_condition.wait_until(
                         cv_lock, now + std::chrono::milliseconds(executor->wt_time));
-                    if (executor->tasks.empty() && executor->threads.size() > executor->low_watermark &&
+                    if (executor->state != Executor::State::kRun ||
+                        executor->tasks.empty() && executor->threads.size() > executor->low_watermark &&
                         wake_stat == std::cv_status::timeout) {
-                        std::unique_lock<std::mutex> lock(executor->mutex);
                         if (executor->state != Executor::State::kStopping) {
+                            std::unique_lock<std::mutex> lock(executor->mutex);
                             auto this_thread_id = std::this_thread::get_id();
                             auto it =
                                 std::find_if(executor->threads.begin(), executor->threads.end(),
                                              [this_thread_id](std::thread &x) { return x.get_id() == this_thread_id; });
                             executor->threads.erase(it);
-                            return;
                         }
+                        return;
                     }
                 }
                 task = std::move(executor->tasks.front());
@@ -134,7 +134,6 @@ private:
             executor->worked_threads--;
         }
     }
-
     /**
      * Mutex to protect state below from concurrent modification
      */
