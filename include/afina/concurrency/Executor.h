@@ -30,9 +30,10 @@ public:
         kStopped
     };
 
-    Executor(std::string name, int size, size_t min_threads = 2, size_t max_threads = 4, size_t wt_time = 3000)
+    Executor(std::string name, int size, std::function<void(const std::string &msg)> &log_err_, size_t min_threads = 2, size_t max_threads = 4, size_t wt_time = 3000)
         : _name(std::move(name)), max_queue_size(size), low_watermark(min_threads), high_watermark(max_threads),
           wt_time(wt_time) {
+        log_err = log_err_;
         std::unique_lock<std::mutex> lock(this->mutex);
         for (int i = 0; i < low_watermark; ++i) {
             threads.emplace_back(std::thread([this] { return thread_worker(this); }));
@@ -129,7 +130,11 @@ private:
                 executor->worked_threads++;
             }
             cv_lock.unlock();
-            task();
+            try{
+                task();
+            }catch (...) {
+                executor->log_err("Task exception");
+            }
             cv_lock.lock();
             executor->worked_threads--;
         }
@@ -153,7 +158,6 @@ private:
      * Task queue
      */
     std::deque<std::function<void()>> tasks;
-
     /**
      * Flag to stop bg threads
      */
@@ -166,6 +170,7 @@ private:
     size_t cur_queue_size = 0;
     size_t worked_threads = 0;
     std::mutex cv_mutex;
+    std::function<void(const std::string &msg)> log_err;
 };
 
 } // namespace Concurrency

@@ -115,7 +115,10 @@ void ServerImpl::OnRun() {
     Protocol::Parser parser;
     std::string argument_for_command;
     std::unique_ptr<Execute::Command> command_to_execute;
-    Afina::Concurrency::Executor executor{"ClientSockets", 8};
+    std::function<void(const std::string &)> err_log = [&, this](const std::string &msg) {
+        return this->_logger->error(msg);
+    };
+    Afina::Concurrency::Executor executor{"ClientSockets", 16, err_log};
     while (running.load()) {
         _logger->debug("waiting for connection...");
 
