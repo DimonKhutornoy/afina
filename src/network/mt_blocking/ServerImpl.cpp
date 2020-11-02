@@ -20,6 +20,7 @@
 #include <afina/Storage.h>
 #include <afina/execute/Command.h>
 #include <afina/logging/Service.h>
+#include <afina/concurrency/Executor.h>
 
 #include "protocol/Parser.h"
 
@@ -95,11 +96,12 @@ void ServerImpl::Join() {
 
     assert(_thread.joinable());
     _thread.join();
-
+    /*
     std::unique_lock<std::mutex> _lock(_mutex);
     while (_client_sockets.size()) {
         _cv.wait(_lock);
     }
+    */
 }
 
 // See Server.h
@@ -113,6 +115,10 @@ void ServerImpl::OnRun() {
     Protocol::Parser parser;
     std::string argument_for_command;
     std::unique_ptr<Execute::Command> command_to_execute;
+    std::function<void(const std::string &)> err_log = [&, this](const std::string &msg) {
+        return this->_logger->error(msg);
+    };
+    Afina::Concurrency::Executor executor{"ClientSockets", 16, err_log};
     while (running.load()) {
         _logger->debug("waiting for connection...");
 
@@ -148,9 +154,12 @@ void ServerImpl::OnRun() {
         // TODO: Start new thread and process data from/to connection
         {
             std::lock_guard<std::mutex> lock(_cs_mutex);
-            if (_client_sockets.size() < _max_worker) {
-                std::thread(&ServerImpl::Worker, this, client_socket).detach();
-                _client_sockets.insert(client_socket);
+            if (running.load()) {
+                if (!executor.Execute(&ServerImpl::Worker, this, client_socket)) {
+                    close(client_socket);
+                } else {
+                    _client_sockets.insert(client_socket);
+                }
             } else {
                 close(client_socket);
             }
