@@ -10,8 +10,8 @@ namespace STnonblock {
 void Connection::Start() {
     _logger->debug("Connection on {} socket started", _socket);
     _event.events = EPOLLIN | EPOLLRDHUP | EPOLLERR;
-    _event.data.fd = _socket;
     running = true;
+	shift = 0;
 }
 // See Connection.h
 void Connection::OnError() {
@@ -27,7 +27,7 @@ void Connection::OnClose() {
 
 // See Connection.h
 void Connection::DoRead() {
-        std::size_t arg_remains;
+        std::size_t arg_remains=0;
         Protocol::Parser parser;
         std::string argument_for_command;
         try {
@@ -83,35 +83,60 @@ void Connection::DoRead() {
                 }
             } // while end
         }
-
-        running = false;
         if (readed_bytes == 0) {
             _logger->debug("Connection closed");
         } else {
             throw std::runtime_error(std::string(strerror(errno)));
         }
     } catch (std::runtime_error &ex) {
-        _logger->error("Failed to process connection on descriptor {}: {}", _socket, ex.what());
-    }
+        if (errno != EAGAIN) {
+            _logger->error("Failed to read connection on descriptor {}: {}", _socket, ex.what());
+			running = false;
+        }
+	}
 }
 
+		
 void Connection::DoWrite() {
     _logger->debug("Writing on socket {}", _socket);
+	static constexpr size_t max_buffer = 64;
+	iovec write_vec[max_buffer];
+    size_t write_vec_v = 0;
     try {
-        while (!buffer.empty()) {
-            auto result = buffer.front();
-            if (send(_socket, result.data(), result.size(), 0) <= 0) {
-                throw std::runtime_error("Failed to send response");
+		auto it = buffer.begin();
+        write_vec[write_vec_v].iov_base = &((*it)[0]) + shift;
+		write_vec[write_vec_v].iov_len = it->size() - shift;
+        it++;
+        write_vec_v++;
+		for (; it != buffer.end(); it++) {
+            write_vec[write_vec_v].iov_base = &((*it)[0]);
+            write_vec[write_vec_v].iov_len = it->size();
+            if (++write_vec_v > max_buffer) {
+                break;
             }
-            buffer.pop_front();
         }
+		int writed = 0;
+        if ((writed = writev(_socket, write_vec, write_vec_v)) >= 0) {
+			size_t i = 0;
+			while (i < write_vec_v && writed >= write_vec[i].iov_len) {
+
+				buffer.pop_front();
+				writed -= write_vec[i].iov_len;
+				i++;
+			}
+			shift = writed;
+		} else {
+			throw std::runtime_error("Failed to send response");
+		}
         if (buffer.empty()) {
             _event.events &= !EPOLLOUT;
-            running = false;
         }
     } catch (std::runtime_error &ex) {
-        _logger->error("Failed to write connection on descriptor {}: {}", _socket, ex.what());
-    }
+        if (errno != EAGAIN) {
+            _logger->error("Failed to write connection on descriptor {}: {}", _socket, ex.what());
+			running = false;
+        }
+	}
 }
 
 } // namespace STnonblock

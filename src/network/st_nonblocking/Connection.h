@@ -12,6 +12,9 @@
 #include <deque>
 #include <spdlog/logger.h>
 #include <sys/epoll.h>
+#include <sys/uio.h>
+#include <iostream>
+
 
 namespace Afina {
 namespace Network {
@@ -51,6 +54,7 @@ private:
     std::deque<std::string> buffer;
     bool _eof{false};
     int now_pos;
+	size_t shift;
 };
 
 } // namespace STnonblock
