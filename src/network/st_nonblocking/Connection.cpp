@@ -27,6 +27,10 @@ void Connection::OnClose() {
 
 // See Connection.h
 void Connection::DoRead() {
+		static constexpr size_t N = 64;
+		if (buffer.size() > N){
+			_event.events = ~EPOLLIN;
+		}
         std::size_t arg_remains=0;
         Protocol::Parser parser;
         std::string argument_for_command;
@@ -74,7 +78,7 @@ void Connection::DoRead() {
                     result += "\r\n";
                     buffer.push_back(result);
 
-                    if (buffer.size() == 1) {
+                    if (buffer.size() > 0) {
                         _event.events |= EPOLLOUT;
                     }
                     command_to_execute.reset();
@@ -85,6 +89,7 @@ void Connection::DoRead() {
         }
         if (readed_bytes == 0) {
             _logger->debug("Connection closed");
+			running = false;
         } else {
             throw std::runtime_error(std::string(strerror(errno)));
         }
@@ -129,7 +134,7 @@ void Connection::DoWrite() {
 			throw std::runtime_error("Failed to send response");
 		}
         if (buffer.empty()) {
-            _event.events &= !EPOLLOUT;
+            _event.events &= ~EPOLLOUT;
         }
     } catch (std::runtime_error &ex) {
         if (errno != EAGAIN) {
