@@ -27,7 +27,7 @@ void Connection::OnClose() {
 
 // See Connection.h
 void Connection::DoRead() {
-		static constexpr size_t N = 64;
+		
 		if (buffer.size() > N){
 			_event.events = ~EPOLLIN;
 		}
@@ -136,6 +136,9 @@ void Connection::DoWrite() {
         if (buffer.empty()) {
             _event.events &= ~EPOLLOUT;
         }
+		if (buffer.size() <= N){
+			_event.events &= EPOLLIN;
+		}
     } catch (std::runtime_error &ex) {
         if (errno != EAGAIN) {
             _logger->error("Failed to write connection on descriptor {}: {}", _socket, ex.what());

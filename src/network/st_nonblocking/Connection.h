@@ -55,6 +55,7 @@ private:
     bool _eof{false};
     int now_pos;
 	size_t shift;
+	size_t N = 64;
 };
 
 } // namespace STnonblock
