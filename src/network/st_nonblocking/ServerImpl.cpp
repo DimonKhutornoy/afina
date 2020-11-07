@@ -21,7 +21,7 @@
 #include <afina/Storage.h>
 #include <afina/logging/Service.h>
 
-#include "Connection.h"
+
 #include "Utils.h"
 
 namespace Afina {
@@ -63,6 +63,11 @@ void ServerImpl::Start(uint16_t port, uint32_t n_acceptors, uint32_t n_workers) 
         close(_server_socket);
         throw std::runtime_error("Socket setsockopt() failed: " + std::string(strerror(errno)));
     }
+	
+	if (setsockopt(_server_socket, SOL_SOCKET, SO_REUSEADDR, &opts, sizeof(opts)) == -1) {
+		close(_server_socket);
+		throw std::runtime_error("Socket setsockopt() failed");
+	}
 
     if (bind(_server_socket, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1) {
         close(_server_socket);
@@ -86,7 +91,9 @@ void ServerImpl::Start(uint16_t port, uint32_t n_acceptors, uint32_t n_workers) 
 // See Server.h
 void ServerImpl::Stop() {
     _logger->warn("Stop network service");
-
+	for (auto c : connection_set){
+        shutdown(c->_socket, SHUT_WR);
+    }
     // Wakeup threads that are sleep on epoll_wait
     if (eventfd_write(_event_fd, 1)) {
         throw std::runtime_error("Failed to wakeup workers");
@@ -140,6 +147,7 @@ void ServerImpl::OnRun() {
 
             // That is some connection!
             Connection *pc = static_cast<Connection *>(current_event.data.ptr);
+			connection_set.insert(pc);
 
             auto old_mask = pc->_event.events;
             if ((current_event.events & EPOLLERR) || (current_event.events & EPOLLHUP)) {
@@ -161,23 +169,27 @@ void ServerImpl::OnRun() {
                 if (epoll_ctl(epoll_descr, EPOLL_CTL_DEL, pc->_socket, &pc->_event)) {
                     _logger->error("Failed to delete connection from epoll");
                 }
-
+				connection_set.erase(pc);
                 close(pc->_socket);
                 pc->OnClose();
-
                 delete pc;
             } else if (pc->_event.events != old_mask) {
                 if (epoll_ctl(epoll_descr, EPOLL_CTL_MOD, pc->_socket, &pc->_event)) {
                     _logger->error("Failed to change connection event mask");
-
+					connection_set.erase(pc);
                     close(pc->_socket);
                     pc->OnClose();
-
                     delete pc;
                 }
             }
         }
     }
+	for (auto c : connection_set){
+        close(c->_socket);
+        c->OnClose();
+        delete c;
+    }
+	connection_set.clear();
     _logger->warn("Acceptor stopped");
 }
 
@@ -207,7 +219,7 @@ void ServerImpl::OnNewConnection(int epoll_descr) {
         }
 
         // Register the new FD to be monitored by epoll.
-        Connection *pc = new(std::nothrow) Connection(infd);
+        Connection *pc = new (std::nothrow) Connection(infd, _logger, pStorage);
         if (pc == nullptr) {
             throw std::runtime_error("Failed to allocate connection");
         }
