@@ -124,7 +124,6 @@ void ServerImpl::Stop() {
     if (eventfd_write(_event_fd, 1)) {
         throw std::runtime_error("Failed to wakeup workers");
     }
-	
 	for(auto &it: connection_set)
     {
         close(it->_socket);
@@ -208,10 +207,6 @@ void ServerImpl::OnRun() {
                 if (pc == nullptr) {
                     throw std::runtime_error("Failed to allocate connection");
                 }
-				{
-					std::lock_guard<std::mutex> lock(_mutex);
-					connection_set.insert(pc);
-				}
                 // Register connection in worker's epoll
                 pc->Start();
                 if (pc->isAlive()) {
@@ -219,13 +214,13 @@ void ServerImpl::OnRun() {
                     int epoll_ctl_retval;
                     if ((epoll_ctl_retval = epoll_ctl(_data_epoll_fd, EPOLL_CTL_ADD, pc->_socket, &pc->_event))) {
                         _logger->debug("epoll_ctl failed during connection register in workers'epoll: error {}", epoll_ctl_retval);
-						{
-							std::lock_guard<std::mutex> lock(_mutex);
-							connection_set.erase(pc);
-						}
-                        pc->OnError();
+                        close(pc->_socket);
+						pc->OnError();
                         delete pc;
-                    }
+                    }else{
+						std::lock_guard<std::mutex> lock(_mutex);
+						connection_set.insert(pc);
+					}
                 }
             }
         }
