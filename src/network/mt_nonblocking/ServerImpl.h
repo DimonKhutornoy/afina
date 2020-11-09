@@ -3,6 +3,9 @@
 
 #include <thread>
 #include <vector>
+#include <set>
+
+#include "Connection.h"
 
 #include <afina/network/Server.h>
 
@@ -53,7 +56,7 @@ private:
 
     // Threads that accepts new connections, each has private epoll instance
     // but share global server socket
-    std::vector<std::thread> _acceptors;
+    std::vector<std::thread> _acceptors; 
 
     // EPOLL instance shared between workers
     int _data_epoll_fd;
@@ -63,6 +66,9 @@ private:
 
     // threads serving read/write requests
     std::vector<Worker> _workers;
+	
+	std::set<Connection *> connection_set;
+	std::mutex _mutex;
 };
 
 } // namespace MTnonblock
