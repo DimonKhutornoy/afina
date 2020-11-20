@@ -86,10 +86,15 @@ protected:
     void Restore(context &ctx);
 
     static void null_unblocker(Engine &) {}
+	
+private:
+    void remove_head(context*& head, context*& elmt);
+    void add_head(context*& head, context*& new_head);
+	bool find(context*& head, context*& elmt);
 
 public:
     Engine(unblocker_func unblocker = null_unblocker)
-        : StackBottom(0), cur_routine(nullptr), alive(nullptr), _unblocker(unblocker) {}
+        : StackBottom(0), cur_routine(nullptr), alive(nullptr), blocked(nullptr), _unblocker(unblocker) {}
     Engine(Engine &&) = delete;
     Engine(const Engine &) = delete;
 
@@ -142,8 +147,10 @@ public:
 
         // Start routine execution
         void *pc = run(main, std::forward<Ta>(args)...);
-
         idle_ctx = new context();
+		cur_routine = idle_ctx;
+        idle_ctx->Hight = StackBottom;
+		idle_ctx->Low = StackBottom;
         if (setjmp(idle_ctx->Environment) > 0) {
             if (alive == nullptr) {
                 _unblocker(*this);
@@ -158,6 +165,7 @@ public:
 
         // Shutdown runtime
         delete idle_ctx;
+		cur_routine = nullptr;
         this->StackBottom = 0;
     }
 
@@ -166,6 +174,11 @@ public:
      * errors function returns -1
      */
     template <typename... Ta> void *run(void (*func)(Ta...), Ta &&... args) {
+			char addr;
+            return run_impl(&addr, func, std::forward<Ta>(args)...);
+        }
+
+    template <typename... Ta> void *run_impl(char* address, void (*func)(Ta...), Ta &&... args) {
         if (this->StackBottom == 0) {
             // Engine wasn't initialized yet
             return nullptr;
@@ -173,6 +186,7 @@ public:
 
         // New coroutine context that carries around all information enough to call function
         context *pc = new context();
+		pc->Hight = address;
 
         // Store current state right here, i.e just before enter new coroutine, later, once it gets scheduled
         // execution starts here. Note that we have to acquire stack of the current function call to ensure
@@ -216,6 +230,7 @@ public:
         // it is neccessary to save arguments, pointer to body function, pointer to context, e.t.c - i.e
         // save stack.
         Store(*pc);
+		char addr;
 
         // Add routine as alive double-linked list
         pc->next = alive;

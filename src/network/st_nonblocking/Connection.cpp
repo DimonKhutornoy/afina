@@ -136,7 +136,7 @@ void Connection::DoWrite() {
             _event.events &= ~EPOLLOUT;
         }
 		if (buffer.size() <= N){
-			_event.events &= EPOLLIN;
+			_event.events |= EPOLLIN;
 		}
     } catch (std::runtime_error &ex) {
         if (errno != EAGAIN) {
