@@ -33,7 +33,10 @@ namespace MTnonblock {
 ServerImpl::ServerImpl(std::shared_ptr<Afina::Storage> ps, std::shared_ptr<Logging::Service> pl) : Server(ps, pl) {}
 
 // See Server.h
-ServerImpl::~ServerImpl() {}
+ServerImpl::~ServerImpl() {
+	Stop();
+	Join();
+}
 
 // See Server.h
 void ServerImpl::Start(uint16_t port, uint32_t n_acceptors, uint32_t n_workers) {
@@ -101,8 +104,9 @@ void ServerImpl::Start(uint16_t port, uint32_t n_acceptors, uint32_t n_workers) 
 
     _workers.reserve(n_workers);
     for (int i = 0; i < n_workers; i++) {
+		work_cnt++;
         _workers.emplace_back(pStorage, pLogging);
-        _workers.back().Start(_data_epoll_fd);
+        _workers.back().Start(_data_epoll_fd, this);
     }
 
     // Start acceptors
@@ -119,15 +123,9 @@ void ServerImpl::Stop() {
     for (auto &w : _workers) {
         w.Stop();
     }
-
     // Wakeup threads that are sleep on epoll_wait
     if (eventfd_write(_event_fd, 1)) {
         throw std::runtime_error("Failed to wakeup workers");
-    }
-	for(auto &it: connection_set)
-    {
-        close(it->_socket);
-        delete it;
     }
 }
 
@@ -226,6 +224,24 @@ void ServerImpl::OnRun() {
         }
     }
     _logger->warn("Acceptor stopped");
+}
+
+void ServerImpl::clear_cs(){
+	std::lock_guard<std::mutex> lock(_mutex);
+	for(auto &it: connection_set){
+		shutdown(it->_socket, SHUT_RD);
+		close(it->_socket);
+		delete it;
+	}
+}
+
+bool ServerImpl::is_last(){
+	return work_cnt==1;
+}
+
+void ServerImpl::dec_work_cnt(){
+	std::lock_guard<std::mutex> lock(_mutex);
+	work_cnt--;
 }
 
 } // namespace MTnonblock

@@ -10,33 +10,26 @@ namespace MTnonblock {
 
 // See Connection.h
 void Connection::Start() {
-	
-	std::lock_guard<std::mutex> lock(_mutex);
     _logger->debug("Connection on {} socket started", _socket);
-    _event.events = EPOLLIN | EPOLLRDHUP | EPOLLERR;
+    _event.events = EPOLLIN | EPOLLRDHUP | EPOLLERR | EPOLLEXCLUSIVE;
     running.store(true);
 	shift = 0;
 }
 // See Connection.h
 void Connection::OnError() {
-	std::lock_guard<std::mutex> lock(_mutex);
     running.store(false);
     _logger->error("Error on socket {}", _socket);
 }
 
 // See Connection.h
 void Connection::OnClose() {
-	std::lock_guard<std::mutex> lock(_mutex);
     running.store(false);
     _logger->debug("Closed connection on socket {}", _socket);
 }
 
 // See Connection.h
 void Connection::DoRead() {	
-	std::lock_guard<std::mutex> lock(_mutex);
-	if (buffer.size() > N){
-		_event.events = ~EPOLLIN;
-	}
+	std::atomic_thread_fence(std::memory_order_acquire);
 	std::size_t arg_remains=0;
 	Protocol::Parser parser;
 	std::string argument_for_command;
@@ -83,6 +76,9 @@ void Connection::DoRead() {
 
                     result += "\r\n";
                     buffer.push_back(result);
+					if (buffer.size() > N){
+						_event.events = ~EPOLLIN;
+					}
 
                     if (buffer.size() > 0) {
                         _event.events |= EPOLLOUT;
@@ -105,11 +101,12 @@ void Connection::DoRead() {
 			running.store(false);
         }
 	}
+	std::atomic_thread_fence(std::memory_order_release);
 }
 
 		
 void Connection::DoWrite() {
-	std::lock_guard<std::mutex> lock(_mutex);
+	std::atomic_thread_fence(std::memory_order_acquire);
     _logger->debug("Writing on socket {}", _socket);
 	static constexpr size_t max_buffer = 64;
 	iovec write_vec[max_buffer];
@@ -144,7 +141,7 @@ void Connection::DoWrite() {
             _event.events &= ~EPOLLOUT;
         }
 		if (buffer.size() <= N){
-			_event.events &= EPOLLIN;
+			_event.events |= EPOLLIN;
 		}
     } catch (std::runtime_error &ex) {
         if (errno != EAGAIN) {
@@ -152,6 +149,7 @@ void Connection::DoWrite() {
 			running.store(false);
         }
 	}
+	std::atomic_thread_fence(std::memory_order_release);
 }
 
 } // namespace MTnonblock

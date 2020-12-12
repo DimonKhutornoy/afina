@@ -5,6 +5,8 @@
 #include <memory>
 #include <thread>
 
+#include "ServerImpl.h"
+
 namespace spdlog {
 class logger;
 }
@@ -38,7 +40,7 @@ public:
      * socket. Once connection accepted it must be registered and being processed
      * on this thread
      */
-    void Start(int epoll_fd);
+    void Start(int epoll_fd, ServerImpl * S);
 
     /**
      * Signal background thread to stop. After that signal thread must stop to
@@ -58,7 +60,7 @@ protected:
     /**
      * Method executing by background thread
      */
-    void OnRun();
+    void OnRun(ServerImpl * S);
 
 private:
     Worker(Worker &) = delete;

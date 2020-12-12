@@ -37,6 +37,11 @@ public:
 
     // See Server.h
     void Join() override;
+	
+	void clear_cs();
+	bool is_last();
+	void dec_work_cnt();
+
 
 protected:
     void OnRun();
@@ -67,8 +72,11 @@ private:
     // threads serving read/write requests
     std::vector<Worker> _workers;
 	
-	std::set<Connection *> connection_set;
 	std::mutex _mutex;
+	
+	std::set<Connection *> connection_set;
+	
+	int work_cnt=0;
 };
 
 } // namespace MTnonblock
