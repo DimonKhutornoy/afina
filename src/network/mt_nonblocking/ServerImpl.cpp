@@ -149,7 +149,7 @@ void ServerImpl::OnRun() {
     }
 
     struct epoll_event event;
-    event.events = EPOLLIN | EPOLLEXCLUSIVE;
+    event.events = EPOLLIN;
     event.data.fd = _server_socket;
     if (epoll_ctl(acceptor_epoll, EPOLL_CTL_ADD, _server_socket, &event)) {
         throw std::runtime_error("Failed to add file descriptor to epoll");
