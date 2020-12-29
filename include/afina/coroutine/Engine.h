@@ -164,6 +164,7 @@ public:
         }
 
         // Shutdown runtime
+        delete[] std::get<0>(idle_ctx->Stack);
         delete idle_ctx;
 		cur_routine = nullptr;
         this->StackBottom = 0;
@@ -186,7 +187,8 @@ public:
 
         // New coroutine context that carries around all information enough to call function
         context *pc = new context();
-		pc->Hight = address;
+        pc->Low = address;
+        pc->Hight = address;
 
         // Store current state right here, i.e just before enter new coroutine, later, once it gets scheduled
         // execution starts here. Note that we have to acquire stack of the current function call to ensure
@@ -230,7 +232,6 @@ public:
         // it is neccessary to save arguments, pointer to body function, pointer to context, e.t.c - i.e
         // save stack.
         Store(*pc);
-		char addr;
 
         // Add routine as alive double-linked list
         pc->next = alive;

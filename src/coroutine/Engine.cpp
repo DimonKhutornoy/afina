@@ -9,11 +9,13 @@ namespace Afina {
 namespace Coroutine {
 
 void Engine::Store(context &ctx) {
-	char addr = 0;
-    if(&ctx != idle_ctx){
+    char addr;
+    if (&addr > StackBottom) {
+        ctx.Hight = &addr;
+    } else {
         ctx.Low = &addr;
     }
-    assert (ctx.Hight - ctx.Low >= 0);
+
     std::size_t need_mem = ctx.Hight - ctx.Low;
     if(std::get<1>(ctx.Stack) < need_mem || std::get<1>(ctx.Stack) > 2*need_mem) {
         delete [] std::get<0>(ctx.Stack);
@@ -25,40 +27,38 @@ void Engine::Store(context &ctx) {
 
 void Engine::Restore(context &ctx) {
 	char cur_addr;
-    while(&cur_addr > ctx.Low) {
-        Restore(ctx);
+        while (&cur_addr >= ctx.Low && &cur_addr <= ctx.Hight) {
+            Restore(ctx);
     }
-    assert(&cur_addr < ctx.Hight);
     std::size_t memory_restore = ctx.Hight - ctx.Low;
-	if (&ctx != idle_ctx) {
-        memcpy(ctx.Low, std::get<0>(ctx.Stack), memory_restore);
-    }
+    memcpy(ctx.Low, std::get<0>(ctx.Stack), memory_restore);
     cur_routine = &ctx;
     longjmp(ctx.Environment, 1);
 }
 
 void Engine::yield() {
-	sched(nullptr);
+    auto it = alive;
+    if (it && it == cur_routine) {
+        it = it->next;
+    }
+
+    if (it) {
+        sched(it);
+    }
 }
 
 void Engine::sched(void *routine_) {
-    auto routine = (context*)routine_;
-    if(find(blocked, routine)) {
-        return;
+    if (routine_ == nullptr || routine_ == cur_routine) {
+        return yield();
     }
-	if (routine == nullptr){
-        if (alive == cur_routine && alive->next != nullptr) {
-            routine_ = alive->next;
-        }
-        routine = alive;
-    }
-    if(cur_routine != idle_ctx) {
+    if (cur_routine) {
         if (setjmp(cur_routine->Environment) > 0) {
             return;
         }
         Store(*cur_routine);
     }
-    Restore(*routine);
+    cur_routine = (context *)routine_;
+    Restore(*cur_routine);
 }
 
 bool Engine::find(context*& head, context*& elmt)
@@ -70,54 +70,6 @@ bool Engine::find(context*& head, context*& elmt)
 		return true;
 	}
 	find(head->next, elmt);
-}
-
-void Engine::remove_head(context*& head, context*& elmt) {
-    if(head == elmt) {
-        head = head->next;
-    }
-    if (elmt->prev != nullptr) {
-        elmt->prev->next = elmt->next;
-    }
-    if (elmt->next != nullptr) {
-        elmt->next->prev = elmt->prev;
-    }
-}
-
-void Engine::add_head(context*& head, context*& new_head) {
-    if(head == nullptr) {
-        head = new_head;
-        head->prev = nullptr;
-        head->next = nullptr;
-    } else {
-        new_head->prev = nullptr;
-        if(head != nullptr) {
-            head->prev = new_head;
-        }
-        new_head->next = head;
-        head = new_head;
-    }
-}
-
-void Engine::block(void *cor){
-    auto blocking = (context*)cor;
-    if (cor == nullptr){
-        blocking = cur_routine;
-    }
-    remove_head(alive, blocking);
-    add_head(blocked, blocking);
-    if(blocking == cur_routine) {
-        yield();
-    }
-}
-
-void Engine::unblock(void* cor){
-    auto unblocking = (context*)cor;
-    if (unblocking == nullptr){
-        return;
-    }
-    remove_head(blocked, unblocking);
-    add_head(alive, unblocking);
 }
 
 } // namespace Coroutine
