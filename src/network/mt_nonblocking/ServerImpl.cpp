@@ -119,6 +119,12 @@ void ServerImpl::Start(uint16_t port, uint32_t n_acceptors, uint32_t n_workers) 
 // See Server.h
 void ServerImpl::Stop() {
     _logger->warn("Stop network service");
+    {
+        std::lock_guard<std::mutex> lock(_mutex);
+        for (auto &it : connection_set) {
+            shutdown(it->_socket, SHUT_RD);
+        }
+    }
     // Said workers to stop
     for (auto &w : _workers) {
         w.Stop();
@@ -134,10 +140,11 @@ void ServerImpl::Join() {
     for (auto &t : _acceptors) {
         t.join();
     }
-
+    _acceptors.clear();
     for (auto &w : _workers) {
         w.Join();
     }
+    _workers.clear();
 }
 
 // See ServerImpl.h
@@ -229,19 +236,24 @@ void ServerImpl::OnRun() {
 void ServerImpl::clear_cs(){
 	std::lock_guard<std::mutex> lock(_mutex);
 	for(auto &it: connection_set){
-		shutdown(it->_socket, SHUT_RD);
 		close(it->_socket);
 		delete it;
 	}
 }
 
 bool ServerImpl::is_last(){
-	return work_cnt==1;
+    std::lock_guard<std::mutex> lock(_mutex);
+    return work_cnt == 1;
 }
 
 void ServerImpl::dec_work_cnt(){
 	std::lock_guard<std::mutex> lock(_mutex);
 	work_cnt--;
+}
+
+void ServerImpl::er(Connection *pconn) {
+    std::lock_guard<std::mutex> lock(_mutex);
+    connection_set.erase(pconn);
 }
 
 } // namespace MTnonblock

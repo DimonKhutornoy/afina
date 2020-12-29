@@ -125,6 +125,8 @@ void Worker::OnRun(ServerImpl * S) {
                 if (epoll_ctl(_epoll_fd, EPOLL_CTL_DEL, pconn->_socket, &pconn->_event)) {
                     std::cerr << "Failed to delete connection!" << std::endl;
                 }
+                close(pconn->_socket);
+                S->er(pconn);
                 delete pconn;
             }
         }

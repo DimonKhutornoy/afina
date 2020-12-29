@@ -11,7 +11,7 @@ namespace MTnonblock {
 // See Connection.h
 void Connection::Start() {
     _logger->debug("Connection on {} socket started", _socket);
-    _event.events = EPOLLIN | EPOLLRDHUP | EPOLLERR | EPOLLEXCLUSIVE;
+    _event.events = EPOLLIN | EPOLLRDHUP | EPOLLERR;
     running.store(true);
 	shift = 0;
 }
@@ -77,8 +77,8 @@ void Connection::DoRead() {
                     result += "\r\n";
                     buffer.push_back(result);
 					if (buffer.size() > N){
-						_event.events = ~EPOLLIN;
-					}
+                                            _event.events &= ~EPOLLIN;
+                                        }
 
                     if (buffer.size() > 0) {
                         _event.events |= EPOLLOUT;
