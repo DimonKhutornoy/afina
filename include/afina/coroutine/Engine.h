@@ -148,7 +148,7 @@ public:
         // Start routine execution
         void *pc = run(main, std::forward<Ta>(args)...);
         idle_ctx = new context();
-		cur_routine = idle_ctx;
+        cur_routine = idle_ctx; ///////
         idle_ctx->Hight = StackBottom;
 		idle_ctx->Low = StackBottom;
         if (setjmp(idle_ctx->Environment) > 0) {
@@ -179,68 +179,68 @@ public:
             return run_impl(&addr, func, std::forward<Ta>(args)...);
         }
 
-    template <typename... Ta> void *run_impl(char* address, void (*func)(Ta...), Ta &&... args) {
-        if (this->StackBottom == 0) {
-            // Engine wasn't initialized yet
-            return nullptr;
-        }
-
-        // New coroutine context that carries around all information enough to call function
-        context *pc = new context();
-        pc->Low = address;
-        pc->Hight = address;
-
-        // Store current state right here, i.e just before enter new coroutine, later, once it gets scheduled
-        // execution starts here. Note that we have to acquire stack of the current function call to ensure
-        // that function parameters will be passed along
-        if (setjmp(pc->Environment) > 0) {
-            // Created routine got control in order to start execution. Note that all variables, such as
-            // context pointer, arguments and a pointer to the function comes from restored stack
-
-            // invoke routine
-            func(std::forward<Ta>(args)...);
-
-            // Routine has completed its execution, time to delete it. Note that we should be extremely careful in where
-            // to pass control after that. We never want to go backward by stack as that would mean to go backward in
-            // time. Function run() has already return once (when setjmp returns 0), so return second return from run
-            // would looks a bit awkward
-            if (pc->prev != nullptr) {
-                pc->prev->next = pc->next;
+        template <typename... Ta> void *run_impl(char *addr, void (*func)(Ta...), Ta &&... args) {
+            if (this->StackBottom == 0) {
+                // Engine wasn't initialized yet
+                return nullptr;
             }
 
+            // New coroutine context that carries around all information enough to call function
+            context *pc = new context();
+            pc->Low = addr;
+            pc->Hight = addr;
+
+            // Store current state right here, i.e just before enter new coroutine, later, once it gets scheduled
+            // execution starts here. Note that we have to acquire stack of the current function call to ensure
+            // that function parameters will be passed along
+            if (setjmp(pc->Environment) > 0) {
+                // Created routine got control in order to start execution. Note that all variables, such as
+                // context pointer, arguments and a pointer to the function comes from restored stack
+
+                // invoke routine
+                func(std::forward<Ta>(args)...);
+
+                // Routine has completed its execution, time to delete it. Note that we should be extremely careful in
+                // where to pass control after that. We never want to go backward by stack as that would mean to go
+                // backward in time. Function run() has already return once (when setjmp returns 0), so return second
+                // return from run would looks a bit awkward
+                if (pc->prev != nullptr) {
+                    pc->prev->next = pc->next;
+                }
+
+                if (pc->next != nullptr) {
+                    pc->next->prev = pc->prev;
+                }
+
+                if (alive == cur_routine) {
+                    alive = alive->next;
+                }
+
+                // current coroutine finished, and the pointer is not relevant now
+                cur_routine = nullptr;
+                pc->prev = pc->next = nullptr;
+                delete std::get<0>(pc->Stack);
+                delete pc;
+
+                // We cannot return here, as this function "returned" once already, so here we must select some other
+                // coroutine to run. As current coroutine is completed and can't be scheduled anymore, it is safe to
+                // just give up and ask scheduler code to select someone else, control will never returns to this one
+                Restore(*idle_ctx);
+            }
+
+            // setjmp remembers position from which routine could starts execution, but to make it correctly
+            // it is neccessary to save arguments, pointer to body function, pointer to context, e.t.c - i.e
+            // save stack.
+            Store(*pc);
+
+            // Add routine as alive double-linked list
+            pc->next = alive;
+            alive = pc;
             if (pc->next != nullptr) {
-                pc->next->prev = pc->prev;
+                pc->next->prev = pc;
             }
 
-            if (alive == cur_routine) {
-                alive = alive->next;
-            }
-
-            // current coroutine finished, and the pointer is not relevant now
-            cur_routine = nullptr;
-            pc->prev = pc->next = nullptr;
-            delete std::get<0>(pc->Stack);
-            delete pc;
-
-            // We cannot return here, as this function "returned" once already, so here we must select some other
-            // coroutine to run. As current coroutine is completed and can't be scheduled anymore, it is safe to
-            // just give up and ask scheduler code to select someone else, control will never returns to this one
-            Restore(*idle_ctx);
-        }
-
-        // setjmp remembers position from which routine could starts execution, but to make it correctly
-        // it is neccessary to save arguments, pointer to body function, pointer to context, e.t.c - i.e
-        // save stack.
-        Store(*pc);
-
-        // Add routine as alive double-linked list
-        pc->next = alive;
-        alive = pc;
-        if (pc->next != nullptr) {
-            pc->next->prev = pc;
-        }
-
-        return pc;
+            return pc;
     }
 };
 

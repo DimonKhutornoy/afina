@@ -32,7 +32,7 @@ void Engine::Restore(context &ctx) {
     }
     std::size_t memory_restore = ctx.Hight - ctx.Low;
     memcpy(ctx.Low, std::get<0>(ctx.Stack), memory_restore);
-    cur_routine = &ctx;
+    cur_routine = &ctx; //////
     longjmp(ctx.Environment, 1);
 }
 
@@ -41,7 +41,6 @@ void Engine::yield() {
     if (it && it == cur_routine) {
         it = it->next;
     }
-
     if (it) {
         sched(it);
     }
@@ -59,17 +58,6 @@ void Engine::sched(void *routine_) {
     }
     cur_routine = (context *)routine_;
     Restore(*cur_routine);
-}
-
-bool Engine::find(context*& head, context*& elmt)
-{
-	if (!head){
-		return false;
-	}
-	if (head == elmt){
-		return true;
-	}
-	find(head->next, elmt);
 }
 
 } // namespace Coroutine
