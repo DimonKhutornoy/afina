@@ -3,6 +3,9 @@
 
 #include <thread>
 #include <vector>
+#include <set>
+
+#include "Connection.h"
 
 #include <afina/network/Server.h>
 
@@ -34,35 +37,46 @@ public:
 
     // See Server.h
     void Join() override;
+	
+	void clear_cs();
+	bool is_last();
+	void dec_work_cnt();
+        void er(Connection *);
 
-protected:
-    void OnRun();
-    void OnNewConnection();
+    protected:
+        void OnRun();
+        void OnNewConnection();
 
-private:
-    // logger to use
-    std::shared_ptr<spdlog::logger> _logger;
+    private:
+        // logger to use
+        std::shared_ptr<spdlog::logger> _logger;
 
-    // Port to listen for new connections, permits access only from
-    // inside of accept_thread
-    // Read-only
-    uint16_t listen_port;
+        // Port to listen for new connections, permits access only from
+        // inside of accept_thread
+        // Read-only
+        uint16_t listen_port;
 
-    // Socket to accept new connection on, shared between acceptors
-    int _server_socket;
+        // Socket to accept new connection on, shared between acceptors
+        int _server_socket;
 
-    // Threads that accepts new connections, each has private epoll instance
-    // but share global server socket
-    std::vector<std::thread> _acceptors;
+        // Threads that accepts new connections, each has private epoll instance
+        // but share global server socket
+        std::vector<std::thread> _acceptors;
 
-    // EPOLL instance shared between workers
-    int _data_epoll_fd;
+        // EPOLL instance shared between workers
+        int _data_epoll_fd;
 
-    // Curstom event "device" used to wakeup workers
-    int _event_fd;
+        // Curstom event "device" used to wakeup workers
+        int _event_fd;
 
-    // threads serving read/write requests
-    std::vector<Worker> _workers;
+        // threads serving read/write requests
+        std::vector<Worker> _workers;
+	
+	std::mutex _mutex;
+	
+	std::set<Connection *> connection_set;
+	
+	int work_cnt=0;
 };
 
 } // namespace MTnonblock

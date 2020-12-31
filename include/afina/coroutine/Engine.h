@@ -87,12 +87,17 @@ protected:
 
     static void null_unblocker(Engine &) {}
 
+private:
+    void remove_head(context *&head, context *&elmt);
+    void add_head(context *&head, context *&new_head);
+    bool find(context *&head, context *&elmt);
+
 public:
     Engine(unblocker_func unblocker = null_unblocker)
-        : StackBottom(0), cur_routine(nullptr), alive(nullptr), _unblocker(unblocker) {}
+        : StackBottom(0), cur_routine(nullptr), alive(nullptr), blocked(nullptr), _unblocker(unblocker) {}
     Engine(Engine &&) = delete;
     Engine(const Engine &) = delete;
-
+    ~Engine();
     /**
      * Gives up current routine execution and let engine to schedule other one. It is not defined when
      * routine will get execution back, for example if there are no other coroutines then executing could
@@ -142,21 +147,24 @@ public:
 
         // Start routine execution
         void *pc = run(main, std::forward<Ta>(args)...);
-
         idle_ctx = new context();
+        idle_ctx->Hight = StackBottom;
+        idle_ctx->Low = StackBottom;
         if (setjmp(idle_ctx->Environment) > 0) {
             if (alive == nullptr) {
                 _unblocker(*this);
             }
-
+            cur_routine = idle_ctx;
             // Here: correct finish of the coroutine section
             yield();
         } else if (pc != nullptr) {
             Store(*idle_ctx);
+            cur_routine = idle_ctx;
             sched(pc);
         }
 
         // Shutdown runtime
+        delete[] std::get<0>(idle_ctx->Stack);
         delete idle_ctx;
         this->StackBottom = 0;
     }
@@ -166,6 +174,11 @@ public:
      * errors function returns -1
      */
     template <typename... Ta> void *run(void (*func)(Ta...), Ta &&... args) {
+        char addr;
+        return run_impl(&addr, func, std::forward<Ta>(args)...);
+    }
+
+    template <typename... Ta> void *run_impl(char *addr, void (*func)(Ta...), Ta &&... args) {
         if (this->StackBottom == 0) {
             // Engine wasn't initialized yet
             return nullptr;
@@ -173,6 +186,8 @@ public:
 
         // New coroutine context that carries around all information enough to call function
         context *pc = new context();
+        pc->Low = addr;
+        pc->Hight = addr;
 
         // Store current state right here, i.e just before enter new coroutine, later, once it gets scheduled
         // execution starts here. Note that we have to acquire stack of the current function call to ensure
@@ -203,7 +218,7 @@ public:
             // current coroutine finished, and the pointer is not relevant now
             cur_routine = nullptr;
             pc->prev = pc->next = nullptr;
-            delete std::get<0>(pc->Stack);
+            delete[] std::get<0>(pc->Stack);
             delete pc;
 
             // We cannot return here, as this function "returned" once already, so here we must select some other
