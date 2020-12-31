@@ -71,8 +71,10 @@ void Engine::sched(void *routine_) {
         return;
     }
     if (cur_routine) {
-        if (setjmp(cur_routine->Environment) > 0) {
-            return;
+        if (cur_routine != idle_ctx) {
+            if (setjmp(cur_routine->Environment) > 0) {
+                return;
+            }
         }
         Store(*cur_routine);
     }
